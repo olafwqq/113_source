@@ -5,6 +5,7 @@
 	#include <windows.h>
 	#include <mmsystem.h>
 	#include <dsound.h>
+#include <atlbase.h>
 
 #define WIN32_LEAN_AND_MEAN
 
@@ -31,7 +32,7 @@ static const char c_szWAV[] = "WAVE";
 
 IDirectSoundBuffer *DSLoadSoundBuffer(IDirectSound *pDS, LPCTSTR lpName)
 {
-	IDirectSoundBuffer *pDSB = NULL;
+	CComPtr<IDirectSoundBuffer> pDSB;
 	DSBUFFERDESC dsBD = {0};
 	BYTE *pbWaveData;
 
@@ -40,21 +41,16 @@ IDirectSoundBuffer *DSLoadSoundBuffer(IDirectSound *pDS, LPCTSTR lpName)
 		dsBD.dwSize = sizeof(dsBD);
 		dsBD.dwFlags = DSBCAPS_STATIC | DSBCAPS_CTRLDEFAULT; // | DSBCAPS_GETCURRENTPOSITION2;
 
-		if (SUCCEEDED(IDirectSound_CreateSoundBuffer(pDS, &dsBD, &pDSB, NULL)))
+		if (SUCCEEDED(pDS->CreateSoundBuffer(&dsBD, &pDSB, NULL)))
 		{
-			if (!DSFillSoundBuffer(pDSB, pbWaveData, dsBD.dwBufferBytes))
+			if (DSFillSoundBuffer(pDSB, pbWaveData, dsBD.dwBufferBytes))
 			{
-				IDirectSoundBuffer_Release(pDSB);
-				pDSB = NULL;
+				return pDSB.Detach();
 			}
-		}
-		else
-		{
-			pDSB = NULL;
 		}
 	}
 
-	return pDSB;
+	return nullptr;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -71,7 +67,7 @@ BOOL DSReloadSoundBuffer(IDirectSoundBuffer *pDSB, LPCTSTR lpName)
 
 	if (DSGetWaveResource(NULL, lpName, NULL, &pbWaveData, &cbWaveSize))
 	{
-		if (SUCCEEDED(IDirectSoundBuffer_Restore(pDSB)) &&
+		if (SUCCEEDED(pDSB->Restore()) &&
 			DSFillSoundBuffer(pDSB, pbWaveData, cbWaveSize))
 		{
 			result = TRUE;
@@ -133,7 +129,7 @@ SNDOBJ *SndObjCreate(IDirectSound *pDS, LPCTSTR lpName, int iConcurrent)
 
 			for (i=1; i<pSO->iAlloc; i++)
 			{
-				if (FAILED(IDirectSound_DuplicateSoundBuffer(pDS,
+				if (FAILED(pDS->DuplicateSoundBuffer(
 					pSO->Buffers[0], &pSO->Buffers[i])))
 				{
 					pSO->Buffers[i] = DSLoadSoundBuffer(pDS, lpName);
@@ -163,7 +159,7 @@ void SndObjDestroy(SNDOBJ *pSO)
 		{
 			if (pSO->Buffers[i])
 			{
-				IDirectSoundBuffer_Release(pSO->Buffers[i]);
+				pSO->Buffers[i]->Release();
 				pSO->Buffers[i] = NULL;
 			}
 		}
@@ -183,10 +179,8 @@ IDirectSoundBuffer *SndObjGetFreeBuffer(SNDOBJ *pSO)
 
 	if (pDSB = pSO->Buffers[pSO->iCurrent])
 	{
-		HRESULT hres;
 		DWORD dwStatus;
-
-		hres = IDirectSoundBuffer_GetStatus(pDSB, &dwStatus);
+		auto hres = pDSB->GetStatus(&dwStatus);
 
 		if (FAILED(hres))
 			dwStatus = 0;
@@ -199,12 +193,12 @@ IDirectSoundBuffer *SndObjGetFreeBuffer(SNDOBJ *pSO)
 					pSO->iCurrent = 0;
 
 				pDSB = pSO->Buffers[pSO->iCurrent];
-				hres = IDirectSoundBuffer_GetStatus(pDSB, &dwStatus);
+				hres = pDSB->GetStatus(&dwStatus);
 
 				if (SUCCEEDED(hres) && (dwStatus & DSBSTATUS_PLAYING) == DSBSTATUS_PLAYING)
 				{
-					IDirectSoundBuffer_Stop(pDSB);
-					IDirectSoundBuffer_SetCurrentPosition(pDSB, 0);
+					pDSB->Stop();
+					pDSB->SetCurrentPosition(0);
 				}
 			}
 			else
@@ -215,7 +209,7 @@ IDirectSoundBuffer *SndObjGetFreeBuffer(SNDOBJ *pSO)
 
 		if (pDSB && (dwStatus & DSBSTATUS_BUFFERLOST))
 		{
-			if (FAILED(IDirectSoundBuffer_Restore(pDSB)) ||
+			if (FAILED(pDSB->Restore()) ||
 				!DSFillSoundBuffer(pDSB, pSO->pbWaveData, pSO->cbWaveSize))
 			{
 				pDSB = NULL;
@@ -240,7 +234,7 @@ BOOL SndObjPlay(SNDOBJ *pSO, DWORD dwPlayFlags)
 	{
 		IDirectSoundBuffer *pDSB = SndObjGetFreeBuffer(pSO);
 		if (pDSB != NULL) {
-			result = SUCCEEDED(IDirectSoundBuffer_Play(pDSB, 0, 0, dwPlayFlags));
+			result = SUCCEEDED(pDSB->Play(0, 0, dwPlayFlags));
 		}
 	}
 
@@ -259,8 +253,8 @@ BOOL SndObjStop(SNDOBJ *pSO)
 
 	for (i=0; i<pSO->iAlloc; i++)
 	{
-		IDirectSoundBuffer_Stop(pSO->Buffers[i]);
-		IDirectSoundBuffer_SetCurrentPosition(pSO->Buffers[i], 0);
+		pSO->Buffers[i]->Stop();
+		pSO->Buffers[i]->SetCurrentPosition(0);
 	}
 
 	return TRUE;
@@ -276,7 +270,7 @@ BOOL DSFillSoundBuffer(IDirectSoundBuffer *pDSB, BYTE *pbWaveData, DWORD cbWaveS
 		LPVOID pMem1, pMem2;
 		DWORD dwSize1, dwSize2;
 
-		if (SUCCEEDED(IDirectSoundBuffer_Lock(pDSB, 0, cbWaveSize,
+		if (SUCCEEDED(pDSB->Lock(0, cbWaveSize,
 			&pMem1, &dwSize1, &pMem2, &dwSize2, 0)))
 		{
 			CopyMemory(pMem1, pbWaveData, dwSize1);
@@ -284,7 +278,7 @@ BOOL DSFillSoundBuffer(IDirectSoundBuffer *pDSB, BYTE *pbWaveData, DWORD cbWaveS
 			if ( 0 != dwSize2 )
 				CopyMemory(pMem2, pbWaveData+dwSize1, dwSize2);
 
-			IDirectSoundBuffer_Unlock(pDSB, pMem1, dwSize1, pMem2, dwSize2);
+			pDSB->Unlock(pMem1, dwSize1, pMem2, dwSize2);
 			return TRUE;
 		}
 	}

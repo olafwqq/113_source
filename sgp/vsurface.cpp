@@ -2141,7 +2141,7 @@ HVSURFACE CreateVideoSurfaceFromDDSurface( LPDIRECTDRAWSURFACE2 lpDDSurface )
 	hVSurface->fFlags						= 0;
 
 	// Get and Set palette, if attached, allow to fail
-	ReturnCode = IDirectDrawSurface2_GetPalette( lpDDSurface, &pDDPalette );
+	ReturnCode = lpDDSurface->GetPalette(&pDDPalette);
 
 	if ( ReturnCode == DD_OK )
 	{

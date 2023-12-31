@@ -18,11 +18,11 @@ DDCreateSurface (	LPDIRECTDRAW2 pExistingDirectDraw,
 	Assert ( ppNewSurface2 != NULL );
 
 	// create the directdraw surface
-	ATTEMPT ( IDirectDraw2_CreateSurface ( pExistingDirectDraw,
+	ATTEMPT ( pExistingDirectDraw->CreateSurface(
 						pNewSurfaceDesc, ppNewSurface1, NULL ) );
 
 	//get the direct draw surface 2 interface
-	ATTEMPT ( IDirectDrawSurface_QueryInterface ( *ppNewSurface1,	/*&*/IID_IDirectDrawSurface2, (LPVOID*) ppNewSurface2 ) ); // (jonathanl)
+	ATTEMPT((*ppNewSurface1)->QueryInterface(IID_IDirectDrawSurface2, reinterpret_cast<void**>(ppNewSurface2)));
 }
 
 
@@ -86,7 +86,7 @@ void DDLockSurface ( LPDIRECTDRAWSURFACE2 pSurface, LPRECT pDestRect, LPDDSURFAC
 
 	do
 	{
-		ReturnCode = IDirectDrawSurface2_Lock( pSurface, pDestRect, pSurfaceDesc, uiFlags, hEvent);
+		ReturnCode = pSurface->Lock(pDestRect, pSurfaceDesc, uiFlags, hEvent);
 
 	} while( ReturnCode == DDERR_WASSTILLDRAWING );
 
@@ -98,7 +98,7 @@ void DDUnlockSurface( LPDIRECTDRAWSURFACE2 pSurface, PTR pSurfaceData )
 {
 	Assert( pSurface != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_Unlock( pSurface, pSurfaceData ) );
+	ATTEMPT( pSurface->Unlock(pSurfaceData) );
 
 }
 
@@ -111,7 +111,7 @@ void DDGetSurfaceDescription ( LPDIRECTDRAWSURFACE2 pSurface, DDSURFACEDESC *pSu
 	ZEROMEM ( *pSurfaceDesc );
 	pSurfaceDesc->dwSize = sizeof ( DDSURFACEDESC );
 
-	ATTEMPT ( IDirectDrawSurface2_GetSurfaceDesc ( pSurface, pSurfaceDesc ) );
+	ATTEMPT ( pSurface->GetSurfaceDesc(pSurfaceDesc) );
 }
 
 void DDGetSurfaceCaps ( LPDIRECTDRAWSURFACE2 pSurface, DDSCAPS *pSurfaceCaps )
@@ -119,7 +119,7 @@ void DDGetSurfaceCaps ( LPDIRECTDRAWSURFACE2 pSurface, DDSCAPS *pSurfaceCaps )
 	Assert( pSurface != NULL	);
 	Assert( pSurfaceCaps != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_GetCaps( pSurface, pSurfaceCaps ) );
+	ATTEMPT( pSurface->GetCaps(pSurfaceCaps) );
 
 }
 
@@ -180,7 +180,7 @@ DDAddAttachedSurface (	LPDIRECTDRAWSURFACE2 pParentSurface,
 	Assert ( pAddChildSurface != NULL );
 
 	// attach the child to the parent surface
-	ATTEMPT ( IDirectDrawSurface2_AddAttachedSurface ( pParentSurface,
+	ATTEMPT ( pParentSurface->AddAttachedSurface(
 								pAddChildSurface ) );
 }
 
@@ -192,7 +192,7 @@ DDDeleteAttachedSurface (	LPDIRECTDRAWSURFACE2 pParentSurface,
 	Assert ( pDeleteChildSurface != NULL );
 
 	// seperate the z buffer surface from the raster surface
-	ATTEMPT ( IDirectDrawSurface2_DeleteAttachedSurface ( pParentSurface,
+	ATTEMPT ( pParentSurface->DeleteAttachedSurface(
 									0, pDeleteChildSurface ) );
 }
 
@@ -204,8 +204,8 @@ DDReleaseSurface ( LPDIRECTDRAWSURFACE *ppOldSurface1, LPDIRECTDRAWSURFACE2 *ppO
 	Assert ( *ppOldSurface1 != NULL );
 	Assert ( *ppOldSurface2 != NULL );
 
-	ATTEMPT ( IDirectDrawSurface2_Release ( *ppOldSurface2 ) );
-	ATTEMPT ( IDirectDrawSurface_Release ( *ppOldSurface1 ) );
+	(*ppOldSurface2)->Release();
+	(*ppOldSurface1)->Release();
 
 	*ppOldSurface1 = NULL;
 	*ppOldSurface2 = NULL;
@@ -215,7 +215,7 @@ void DDRestoreSurface( LPDIRECTDRAWSURFACE2 pSurface )
 {
 	Assert( pSurface != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_Restore( pSurface ) );
+	ATTEMPT(pSurface->Restore());
 }
 
 
@@ -259,7 +259,7 @@ void DDCreatePalette( LPDIRECTDRAW2 pDirectDraw, UINT32 uiFlags, LPPALETTEENTRY 
 
 	Assert( pDirectDraw != NULL );
 
-	ATTEMPT( IDirectDraw2_CreatePalette( pDirectDraw, uiFlags, pColorTable, ppDDPalette, pUnkOuter ) );
+	ATTEMPT( pDirectDraw->CreatePalette(uiFlags, pColorTable, ppDDPalette, pUnkOuter) );
 
 }
 
@@ -268,7 +268,7 @@ void DDSetSurfacePalette( LPDIRECTDRAWSURFACE2 pSurface, LPDIRECTDRAWPALETTE pDD
 	Assert( pDDPalette != NULL	);
 	Assert( pSurface != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_SetPalette( pSurface, pDDPalette ) );
+	ATTEMPT( pSurface->SetPalette(pDDPalette) );
 
 }
 
@@ -277,7 +277,7 @@ void DDGetSurfacePalette( LPDIRECTDRAWSURFACE2 pSurface, LPDIRECTDRAWPALETTE *pp
 	Assert( ppDDPalette != NULL );
 	Assert( pSurface != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_GetPalette( pSurface, ppDDPalette ) );
+	ATTEMPT( pSurface->GetPalette(ppDDPalette) );
 
 }
 
@@ -287,7 +287,7 @@ void DDSetPaletteEntries( LPDIRECTDRAWPALETTE pPalette, UINT32 uiFlags, UINT32 u
 	Assert( pPalette != NULL );
 	Assert( pEntries != NULL );
 
-	ATTEMPT( IDirectDrawPalette_SetEntries( pPalette, uiFlags, uiStartingEntry, uiCount, pEntries ) );
+	ATTEMPT( pPalette->SetEntries(uiFlags, uiStartingEntry, uiCount, pEntries) );
 
 }
 
@@ -297,7 +297,7 @@ void DDGetPaletteEntries( LPDIRECTDRAWPALETTE pPalette, UINT32 uiFlags, UINT32 u
 	Assert( pPalette != NULL );
 	Assert( pEntries != NULL );
 
-	ATTEMPT( IDirectDrawPalette_GetEntries( pPalette, uiFlags, uiBase, uiNumEntries, pEntries ) );
+	ATTEMPT( pPalette->GetEntries(uiFlags, uiBase, uiNumEntries, pEntries) );
 
 }
 
@@ -305,7 +305,7 @@ void DDReleasePalette( LPDIRECTDRAWPALETTE pPalette )
 {
 	Assert( pPalette != NULL );
 
-	ATTEMPT( IDirectDrawPalette_Release( pPalette ) );
+	pPalette->Release();
 }
 
 void DDGetDC( LPDIRECTDRAWSURFACE2 pSurface, HDC *phDC )
@@ -314,7 +314,7 @@ void DDGetDC( LPDIRECTDRAWSURFACE2 pSurface, HDC *phDC )
 	Assert( pSurface != NULL );
 	Assert( phDC != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_GetDC( pSurface, phDC ) );
+	ATTEMPT( pSurface->GetDC(phDC) );
 
 }
 
@@ -323,7 +323,7 @@ void DDReleaseDC( LPDIRECTDRAWSURFACE2 pSurface, HDC hDC )
 
 	Assert( pSurface != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_ReleaseDC( pSurface, hDC ) );
+	ATTEMPT( pSurface->ReleaseDC(hDC) );
 
 }
 
@@ -332,7 +332,7 @@ void DDSetSurfaceColorKey( LPDIRECTDRAWSURFACE2 pSurface, UINT32 uiFlags, LPDDCO
 	Assert( pSurface != NULL );
 	Assert( pDDColorKey != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_SetColorKey( pSurface, uiFlags, pDDColorKey ) );
+	ATTEMPT( pSurface->SetColorKey(uiFlags, pDDColorKey) );
 
 }
 
@@ -341,7 +341,7 @@ void DDGetDDInterface( LPDIRECTDRAWSURFACE2 pSurface, LPDIRECTDRAW *ppDirectDraw
 	Assert( pSurface != NULL );
 	Assert( ppDirectDraw != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_GetDDInterface( pSurface, (LPVOID *)ppDirectDraw ) );
+	ATTEMPT( pSurface->GetDDInterface(reinterpret_cast<void **>(ppDirectDraw)) );
 }
 
 // Clipper FUnctions
@@ -350,7 +350,7 @@ void DDCreateClipper( LPDIRECTDRAW2 pDirectDraw, UINT32 fFlags, LPDIRECTDRAWCLIP
 	Assert( pDirectDraw != NULL );
 	Assert( pDDClipper != NULL );
 
-	ATTEMPT( IDirectDraw2_CreateClipper( pDirectDraw, 0, pDDClipper, NULL ) );
+	ATTEMPT( pDirectDraw->CreateClipper(0, pDDClipper, nullptr) );
 
 }
 
@@ -359,7 +359,7 @@ void DDSetClipper( LPDIRECTDRAWSURFACE2 pSurface, LPDIRECTDRAWCLIPPER pDDClipper
 	Assert( pSurface != NULL );
 	Assert( pDDClipper != NULL );
 
-	ATTEMPT( IDirectDrawSurface2_SetClipper( pSurface, pDDClipper ) );
+	ATTEMPT( pSurface->SetClipper(pDDClipper) );
 
 }
 
@@ -367,7 +367,7 @@ void DDReleaseClipper( LPDIRECTDRAWCLIPPER pDDClipper )
 {
 	Assert( pDDClipper != NULL );
 
-	ATTEMPT( IDirectDrawClipper_Release( pDDClipper ) );
+	pDDClipper->Release();
 }
 
 void DDSetClipperList( LPDIRECTDRAWCLIPPER pDDClipper, LPRGNDATA pClipList, UINT32 uiFlags)
@@ -375,7 +375,7 @@ void DDSetClipperList( LPDIRECTDRAWCLIPPER pDDClipper, LPRGNDATA pClipList, UINT
 	Assert( pDDClipper != NULL );
 	Assert( pClipList != NULL );
 
-	ATTEMPT( IDirectDrawClipper_SetClipList( pDDClipper, pClipList, uiFlags ) );
+	ATTEMPT( pDDClipper->SetClipList(pClipList, uiFlags) );
 }
 
 
@@ -413,7 +413,7 @@ HRESULT BltFastDDSurfaceUsingSoftware( LPDIRECTDRAWSURFACE2 pDestSurface, INT32 
 	else if ( uiTrans == DDBLTFAST_SRCCOLORKEY )
 	{
 		// Get 16 bpp color key.....
-		ReturnCode = IDirectDrawSurface2_GetColorKey( pSrcSurface, DDCKEY_SRCBLT, &ColorKey);
+		ReturnCode = pSrcSurface->GetColorKey(DDCKEY_SRCBLT, &ColorKey);
 
 	if (ReturnCode == DD_OK)
 		{
@@ -477,7 +477,7 @@ HRESULT BltDDSurfaceUsingSoftware( LPDIRECTDRAWSURFACE2 pDestSurface, LPRECT pDe
 		}
 
 		// Fall back to DD
-		IDirectDrawSurface2_Blt( pDestSurface, pDestRect, pSrcSurface, pSrcRect, uiFlags, pDDBltFx );
+		pDestSurface->Blt(pDestRect, pSrcSurface, pSrcRect, uiFlags, pDDBltFx);
 
 		return( DD_OK );
 	}
@@ -498,7 +498,7 @@ HRESULT BltDDSurfaceUsingSoftware( LPDIRECTDRAWSURFACE2 pDestSurface, LPRECT pDe
 	else if ((pSrcSurface != nullptr) && (pSrcRect != nullptr) && (uiFlags & DDBLT_KEYSRC ))
 	{
 		// Get 16 bpp color key.....
-		ReturnCode = IDirectDrawSurface2_GetColorKey( pSrcSurface, DDCKEY_SRCBLT, &ColorKey);
+		ReturnCode = pSrcSurface->GetColorKey(DDCKEY_SRCBLT, &ColorKey);
 
 		if (ReturnCode == DD_OK)
 		{

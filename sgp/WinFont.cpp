@@ -444,7 +444,7 @@ void PrintWinFont( UINT32 uiDestBuf, INT32 iFont, INT32 x, INT32 y, STR16 pFontS
 
 	pDDSurface = GetVideoSurfaceDDSurface( hVSurface );
 
-	IDirectDrawSurface2_GetDC( pDDSurface, &hdc );
+	pDDSurface->GetDC(&hdc);
 
 	SelectObject(hdc, pWinFont->hFont );
 	SetTextColor( hdc, pWinFont->ForeColor );
@@ -458,7 +458,7 @@ void PrintWinFont( UINT32 uiDestBuf, INT32 iFont, INT32 x, INT32 y, STR16 pFontS
 	}
 	TextOutW( hdc, x, y, string, len );
 
-	IDirectDrawSurface2_ReleaseDC( pDDSurface, hdc );
+	pDDSurface->ReleaseDC(hdc);
 
 }
 

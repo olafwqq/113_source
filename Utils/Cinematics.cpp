@@ -303,7 +303,7 @@ void SmkSetupVideo(void)
 	DDSURFACEDESC SurfaceDescription;
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof (DDSURFACEDESC);
-	HRESULT ReturnCode = IDirectDrawSurface2_GetSurfaceDesc ( lpVideoPlayback2, &SurfaceDescription );
+	HRESULT ReturnCode = lpVideoPlayback2->GetSurfaceDesc(&SurfaceDescription);
 	if (ReturnCode != DD_OK)
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );

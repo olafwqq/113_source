@@ -86,8 +86,8 @@ HRESULT BltFastDDSurfaceUsingSoftware( LPDIRECTDRAWSURFACE2 pDestSurface, INT32 
 HRESULT BltDDSurfaceUsingSoftware( LPDIRECTDRAWSURFACE2 pDestSurface, LPRECT pDestRect, LPDIRECTDRAWSURFACE2 pSrcSurface, LPRECT pSrcRect, UINT32 uiFlags, LPDDBLTFX pDDBltFx );
 
 
-#define IDirectDrawSurface2_SGPBltFast(p,a,b,c,d,e)		 ( ( gfDontUseDDBlits == TRUE ) ?	BltFastDDSurfaceUsingSoftware( p, a, b, c, d, e ) : ( IDirectDrawSurface2_BltFast(p,a,b,c,d,e) ) )
-#define IDirectDrawSurface2_SGPBlt(p,a,b,c,d,e)							( ( gfDontUseDDBlits == TRUE ) ?	BltDDSurfaceUsingSoftware( p, a, b, c, d, e ) : ( IDirectDrawSurface2_Blt(p,a,b,c,d,e) ) )
+#define IDirectDrawSurface2_SGPBltFast(p,a,b,c,d,e)		 ( ( gfDontUseDDBlits == TRUE ) ?	BltFastDDSurfaceUsingSoftware( p, a, b, c, d, e ) : ( (p)->BltFast(a,b,c,d,e) ) )
+#define IDirectDrawSurface2_SGPBlt(p,a,b,c,d,e)							( ( gfDontUseDDBlits == TRUE ) ?	BltDDSurfaceUsingSoftware( p, a, b, c, d, e ) : ( (p)->Blt(a,b,c,d,e) ) )
 
 
 #ifdef __cplusplus

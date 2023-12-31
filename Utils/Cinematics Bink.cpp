@@ -349,7 +349,7 @@ void				BinkSetupVideo(void)
   ZEROMEM(SurfaceDescription);
   SurfaceDescription.dwSize = sizeof (DDSURFACEDESC);
 
-  ReturnCode = IDirectDrawSurface2_GetSurfaceDesc ( lpBinkVideoPlayback2, &SurfaceDescription );
+  ReturnCode = lpBinkVideoPlayback2->GetSurfaceDesc(&SurfaceDescription);
   if (ReturnCode != DD_OK)
   {
     DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );

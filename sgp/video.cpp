@@ -20,6 +20,7 @@
 
 #include "Local.h"
 #include "text.h"
+#include <atlbase.h>
 
 
 #ifndef _MT
@@ -61,8 +62,7 @@ typedef struct
 	INT16					usMouseXPos, usMouseYPos;
 	INT16					usLeft, usTop, usRight, usBottom;
 	RECT										Region;
-	LPDIRECTDRAWSURFACE	 _pSurface;
-	LPDIRECTDRAWSURFACE2	pSurface;
+	IDirectDrawSurface2 *pSurface;
 
 } MouseCursorBackground;
 
@@ -94,10 +94,8 @@ INT32													giNumFrames = 0;
 // Direct Draw objects for both the Primary and Backbuffer surfaces
 //
 
-static LPDIRECTDRAW			_gpDirectDrawObject = NULL;
 static LPDIRECTDRAW2			gpDirectDrawObject = NULL;
 
-static LPDIRECTDRAWSURFACE	_gpPrimarySurface = NULL;
 static LPDIRECTDRAWSURFACE2	gpPrimarySurface = NULL;
 static LPDIRECTDRAWSURFACE2	gpBackBuffer = NULL;
 
@@ -107,7 +105,6 @@ static LPDIRECTDRAWSURFACE2	gpBackBuffer = NULL;
 
 static LPDIRECTDRAWSURFACE	_gpFrameBuffer = NULL;
 static LPDIRECTDRAWSURFACE2	gpFrameBuffer = NULL;
-static LPDIRECTDRAWSURFACE	_gpBackBuffer = NULL;
 extern RECT									rcWindow;
 extern POINT									ptWindowSize;
 
@@ -122,10 +119,8 @@ static UINT16				 gusMouseCursorHeight;
 static INT16					gsMouseCursorXOffset;
 static INT16					gsMouseCursorYOffset;
 
-static LPDIRECTDRAWSURFACE	_gpMouseCursor = NULL;
 static LPDIRECTDRAWSURFACE2	gpMouseCursor = NULL;
 
-static LPDIRECTDRAWSURFACE	_gpMouseCursorOriginal = NULL;
 static LPDIRECTDRAWSURFACE2	gpMouseCursorOriginal = NULL;
 
 static MouseCursorBackground	gMouseCursorBackground[2];
@@ -209,6 +204,27 @@ void VideoMovieCapture( BOOLEAN fEnable );
 void RefreshMovieCache( );
 
 
+static HRESULT CreateDDS2(DDSURFACEDESC & desc, IDirectDrawSurface2 *& result)
+{
+	result = nullptr;
+	desc.dwSize = sizeof(desc);
+
+	CComPtr<IDirectDrawSurface> dds;
+	auto hr = gpDirectDrawObject->CreateSurface(&desc, &dds, nullptr);
+	if (SUCCEEDED(hr))
+	{
+		hr = dds->QueryInterface(IID_IDirectDrawSurface2, reinterpret_cast<void **>(&result));
+	}
+
+	return hr;
+}
+
+template<typename T>
+static void SafeRelease(T*& pUnk)
+{
+	if (pUnk) pUnk->Release();
+	pUnk = nullptr;
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -323,14 +339,16 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 	// Create the Direct Draw Object
 	//
 
-	ReturnCode = DirectDrawCreate(NULL, &_gpDirectDrawObject, NULL);
+	ATL::CComPtr<IDirectDraw> pDirectDraw1;
+	ReturnCode = DirectDrawCreate(NULL, &pDirectDraw1, NULL);
 	if (ReturnCode != DD_OK)
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
 		return FALSE;
 	}
 
-	ReturnCode = IDirectDraw_QueryInterface( _gpDirectDrawObject, /*&*/IID_IDirectDraw2, (LPVOID *) &gpDirectDrawObject ); // (jonathanl)
+	ReturnCode = pDirectDraw1->QueryInterface(IID_IDirectDraw2, reinterpret_cast<void **>(&gpDirectDrawObject));
+
 	if (ReturnCode != DD_OK)
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -341,9 +359,9 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 	// Set the exclusive mode
 	//
 	if( 1==iScreenMode ) /* Windowed mode */
-		ReturnCode = IDirectDraw2_SetCooperativeLevel(gpDirectDrawObject, ghWindow, DDSCL_NORMAL );
+		ReturnCode = gpDirectDrawObject->SetCooperativeLevel(ghWindow, DDSCL_NORMAL );
 	else
-		ReturnCode = IDirectDraw2_SetCooperativeLevel(gpDirectDrawObject, ghWindow, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN );
+		ReturnCode = gpDirectDrawObject->SetCooperativeLevel(ghWindow, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN );
 
 	if (ReturnCode != DD_OK)
 	{
@@ -356,10 +374,10 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 	//
 	if( 0==iScreenMode ) /* Fullscreen mode */
 	{
-		ReturnCode = IDirectDraw2_SetDisplayMode( gpDirectDrawObject, SCREEN_WIDTH, SCREEN_HEIGHT, gbPixelDepth, 0, 0 );
+		ReturnCode = gpDirectDrawObject->SetDisplayMode(SCREEN_WIDTH, SCREEN_HEIGHT, gbPixelDepth, 0, 0);
 		if (ReturnCode != DD_OK)
 		{
-			IDirectDraw2_SetCooperativeLevel(gpDirectDrawObject, ghWindow, DDSCL_NORMAL);
+			gpDirectDrawObject->SetCooperativeLevel(ghWindow, DDSCL_NORMAL);
 
 			CHAR16 sString[256];
 			swprintf(sString, Additional113Text[ADDTEXT_DIFFRES_REQUIRED], SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -390,11 +408,10 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 		LPDIRECTDRAWCLIPPER clip;
 
 		// Create a primary surface and a backbuffer in system memory
-		SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
 		SurfaceDescription.dwFlags = DDSD_CAPS;
 		SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE;
 
-		ReturnCode = IDirectDraw2_CreateSurface ( gpDirectDrawObject, &SurfaceDescription, &_gpPrimarySurface, NULL );
+		ReturnCode = CreateDDS2(SurfaceDescription, gpPrimarySurface);
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -408,21 +425,14 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 			return FALSE;
 		}
 
-		ReturnCode = IDirectDrawClipper_SetHWnd( clip, 0, ghWindow);
+		ReturnCode = clip->SetHWnd(0, ghWindow);
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
 			return FALSE;
 		}
 
-		ReturnCode = IDirectDrawSurface_SetClipper( _gpPrimarySurface, clip);
-		if (ReturnCode != DD_OK)
-		{
-			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
-			return FALSE;
-		}
-
-		ReturnCode = IDirectDrawSurface_QueryInterface(_gpPrimarySurface, /*&*/IID_IDirectDrawSurface2, (LPVOID *)&gpPrimarySurface); // (jonathanl)
+		ReturnCode = gpPrimarySurface->SetClipper(clip);
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -431,20 +441,11 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 
 		// Backbuffer
 		ZEROMEM(SurfaceDescription);
-		SurfaceDescription.dwSize		 = sizeof(DDSURFACEDESC);
 		SurfaceDescription.dwFlags		= DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
 		SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
 		SurfaceDescription.dwWidth		= SCREEN_WIDTH;
 		SurfaceDescription.dwHeight		= SCREEN_HEIGHT;
-		ReturnCode = IDirectDraw2_CreateSurface ( gpDirectDrawObject, &SurfaceDescription, &_gpBackBuffer, NULL );
-		if (ReturnCode != DD_OK)
-		{
-			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
-			return FALSE;
-		}
-
-
-		ReturnCode = IDirectDrawSurface_QueryInterface(_gpBackBuffer, /*&*/IID_IDirectDrawSurface2, (LPVOID *)&gpBackBuffer); // (jonathanl)
+		ReturnCode = CreateDDS2(SurfaceDescription, gpBackBuffer);
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -453,20 +454,11 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 	}
 	else /* iScreenMode = FULLSCREEN */
 	{
-		SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
 		SurfaceDescription.dwFlags = DDSD_CAPS | DDSD_BACKBUFFERCOUNT;
 		SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE | DDSCAPS_FLIP | DDSCAPS_COMPLEX;
 		SurfaceDescription.dwBackBufferCount = 1;
 
-		ReturnCode = IDirectDraw2_CreateSurface ( gpDirectDrawObject, &SurfaceDescription, &_gpPrimarySurface, NULL );
-		if (ReturnCode != DD_OK)
-		{
-			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
-			return FALSE;
-		}
-
-
-		ReturnCode = IDirectDrawSurface_QueryInterface(_gpPrimarySurface, /*&*/IID_IDirectDrawSurface2, (LPVOID *) &gpPrimarySurface);
+		ReturnCode = CreateDDS2(SurfaceDescription, gpPrimarySurface);
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -474,7 +466,7 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 		}
 
 		SurfaceCaps.dwCaps = DDSCAPS_BACKBUFFER;
-		ReturnCode = IDirectDrawSurface2_GetAttachedSurface( gpPrimarySurface, &SurfaceCaps, &gpBackBuffer );
+		ReturnCode = gpPrimarySurface->GetAttachedSurface(&SurfaceCaps, &gpBackBuffer);
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -487,19 +479,11 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 	//
 
 	ZEROMEM(SurfaceDescription);
-	SurfaceDescription.dwSize		 = sizeof(DDSURFACEDESC);
 	SurfaceDescription.dwFlags		= DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
 	SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
 	SurfaceDescription.dwWidth		= SCREEN_WIDTH;
 	SurfaceDescription.dwHeight		= SCREEN_HEIGHT;
-	ReturnCode = IDirectDraw2_CreateSurface ( gpDirectDrawObject, &SurfaceDescription, &_gpFrameBuffer, NULL );
-	if (ReturnCode != DD_OK)
-	{
-		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
-		return FALSE;
-	}
-
-	ReturnCode = IDirectDrawSurface_QueryInterface(_gpFrameBuffer, /*&*/IID_IDirectDrawSurface2, (LPVOID *)&gpFrameBuffer); // (jonathanl)
+	ReturnCode = CreateDDS2(SurfaceDescription, gpFrameBuffer);
 	if (ReturnCode != DD_OK)
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -519,13 +503,12 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 	//
 
 	ZEROMEM(SurfaceDescription);
-	SurfaceDescription.dwSize		 = sizeof(DDSURFACEDESC);
 	SurfaceDescription.dwFlags		= DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
 	// SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN;
 	SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
 	SurfaceDescription.dwWidth		= MAX_CURSOR_WIDTH;
 	SurfaceDescription.dwHeight		= MAX_CURSOR_HEIGHT;
-	ReturnCode = IDirectDraw2_CreateSurface ( gpDirectDrawObject, &SurfaceDescription, &_gpMouseCursor, NULL );
+	ReturnCode = CreateDDS2(SurfaceDescription, gpMouseCursor);
 	if (ReturnCode != DD_OK)
 	{
 		DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, String("Failed to create MouseCursor witd %ld", ReturnCode & 0x0f));
@@ -533,16 +516,9 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 		return FALSE;
 	}
 
-	ReturnCode = IDirectDrawSurface_QueryInterface(_gpMouseCursor, /*&*/IID_IDirectDrawSurface2, (LPVOID *)&gpMouseCursor); // (jonathanl)
-	if (ReturnCode != DD_OK)
-	{
-		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
-		return FALSE;
-	}
-
 	ColorKey.dwColorSpaceLowValue = 0;
 	ColorKey.dwColorSpaceHighValue = 0;
-	ReturnCode = IDirectDrawSurface2_SetColorKey(gpMouseCursor, DDCKEY_SRCBLT, &ColorKey);
+	ReturnCode = gpMouseCursor->SetColorKey(DDCKEY_SRCBLT, &ColorKey);
 	if (ReturnCode != DD_OK)
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -554,22 +530,14 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 	//
 
 	ZEROMEM(SurfaceDescription);
-	SurfaceDescription.dwSize		 = sizeof(DDSURFACEDESC);
 	SurfaceDescription.dwFlags		= DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
 	SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
 	SurfaceDescription.dwWidth		= MAX_CURSOR_WIDTH;
 	SurfaceDescription.dwHeight		= MAX_CURSOR_HEIGHT;
-	ReturnCode = IDirectDraw2_CreateSurface ( gpDirectDrawObject, &SurfaceDescription, &_gpMouseCursorOriginal, NULL );
+	ReturnCode = CreateDDS2(SurfaceDescription, gpMouseCursorOriginal);
 	if (ReturnCode != DD_OK)
 	{
 		DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, "Failed to create MouseCursorOriginal");
-		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
-		return FALSE;
-	}
-
-	ReturnCode = IDirectDrawSurface_QueryInterface(_gpMouseCursorOriginal, /*&*/IID_IDirectDrawSurface2, (LPVOID *)&gpMouseCursorOriginal); // (jonathanl)
-	if (ReturnCode != DD_OK)
-	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
 		return FALSE;
 	}
@@ -592,23 +560,15 @@ BOOLEAN InitializeVideoManager(HINSTANCE hInstance, UINT16 usCommandShow, void *
 		//
 
 		ZEROMEM(SurfaceDescription);
-		SurfaceDescription.dwSize		 = sizeof(DDSURFACEDESC);
 		SurfaceDescription.dwFlags		= DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
 		//SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN;
 		SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
 		SurfaceDescription.dwWidth		= MAX_CURSOR_WIDTH;
 		SurfaceDescription.dwHeight		= MAX_CURSOR_HEIGHT;
-		ReturnCode = IDirectDraw2_CreateSurface ( gpDirectDrawObject, &SurfaceDescription, &(gMouseCursorBackground[uiIndex]._pSurface), NULL );
+		ReturnCode = CreateDDS2(SurfaceDescription, gMouseCursorBackground[uiIndex].pSurface);
 		if (ReturnCode != DD_OK)
 		{
 			DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, "Failed to create MouseCursorBackground");
-			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
-			return FALSE;
-		}
-
-		ReturnCode = IDirectDrawSurface_QueryInterface(gMouseCursorBackground[uiIndex]._pSurface, /*&*/IID_IDirectDrawSurface2, (LPVOID *)&(gMouseCursorBackground[uiIndex].pSurface)); // (jonathanl)
-		if (ReturnCode != DD_OK)
-		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
 			return FALSE;
 		}
@@ -651,38 +611,17 @@ void ShutdownVideoManager(void)
 	// down
 	//
 
-	if(gpMouseCursorOriginal)
-	{
-		IDirectDrawSurface2_Release(gpMouseCursorOriginal);
-		gpMouseCursorOriginal = NULL;
-	}
-	if(gpMouseCursor)
-	{
-		IDirectDrawSurface2_Release(gpMouseCursor);
-		gpMouseCursor = NULL;
-	}
-	if(gMouseCursorBackground[0].pSurface)
-	{
-		IDirectDrawSurface2_Release(gMouseCursorBackground[0].pSurface);
-		gMouseCursorBackground[0].pSurface = NULL;
-	}
-	if(gpBackBuffer)
-	{
-		IDirectDrawSurface2_Release(gpBackBuffer);
-		gpBackBuffer = NULL;
-	}
-	if(gpPrimarySurface)
-	{
-		IDirectDrawSurface2_Release(gpPrimarySurface);
-		gpPrimarySurface = NULL;
-	}
+	SafeRelease(gpMouseCursorOriginal);
+	SafeRelease(gpMouseCursor);
+	SafeRelease(gMouseCursorBackground[0].pSurface);
+	SafeRelease(gpBackBuffer);
+	SafeRelease(gpPrimarySurface);
 
 	if(gpDirectDrawObject)
 	{
-		IDirectDraw2_RestoreDisplayMode( gpDirectDrawObject );
-		IDirectDraw2_SetCooperativeLevel(gpDirectDrawObject, ghWindow, DDSCL_NORMAL );
-		IDirectDraw2_Release( gpDirectDrawObject );
-		gpDirectDrawObject = NULL;
+		gpDirectDrawObject->RestoreDisplayMode();
+		gpDirectDrawObject->SetCooperativeLevel(ghWindow, DDSCL_NORMAL);
+		SafeRelease(gpDirectDrawObject);
 	}
 
 	// destroy the window
@@ -712,8 +651,8 @@ void SuspendVideoManager(void)
 
 void DoTester( )
 {
-	IDirectDraw2_RestoreDisplayMode( gpDirectDrawObject );
-	IDirectDraw2_SetCooperativeLevel(gpDirectDrawObject, ghWindow, DDSCL_NORMAL );
+	gpDirectDrawObject->RestoreDisplayMode();
+	gpDirectDrawObject->SetCooperativeLevel(ghWindow, DDSCL_NORMAL);
 	//	ShowCursor(TRUE);
 }
 
@@ -733,14 +672,14 @@ BOOLEAN RestoreVideoManager(void)
 		// Restore the Primary and Backbuffer
 		//
 
-		ReturnCode = IDirectDrawSurface2_Restore( gpPrimarySurface );
+		ReturnCode = gpPrimarySurface->Restore();
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
 			return FALSE;
 		}
 
-		ReturnCode = IDirectDrawSurface2_Restore( gpBackBuffer );
+		ReturnCode = gpBackBuffer->Restore();
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -751,14 +690,14 @@ BOOLEAN RestoreVideoManager(void)
 		// Restore the mouse surfaces and make sure to initialize the gpMouseCursor surface
 		//
 
-		ReturnCode = IDirectDrawSurface2_Restore( gMouseCursorBackground[0].pSurface );
+		ReturnCode = gMouseCursorBackground[0].pSurface->Restore();
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
 			return FALSE;
 		}
 
-		ReturnCode = IDirectDrawSurface2_Restore( gpMouseCursor );
+		ReturnCode = gpMouseCursor->Restore();
 		if (ReturnCode != DD_OK)
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -1898,18 +1837,11 @@ void RefreshScreen(void *DummyVariable)
 		//
 
 		ZEROMEM(SurfaceDescription);
-		SurfaceDescription.dwSize		 = sizeof(DDSURFACEDESC);
 		SurfaceDescription.dwFlags		= DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
 		SurfaceDescription.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
 		SurfaceDescription.dwWidth		= SCREEN_WIDTH;
 		SurfaceDescription.dwHeight		= SCREEN_HEIGHT;
-		ReturnCode = IDirectDraw2_CreateSurface ( gpDirectDrawObject, &SurfaceDescription, &_pTmpBuffer, NULL );
-		if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
-		{
-			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
-		}
-
-		ReturnCode = IDirectDrawSurface_QueryInterface(_pTmpBuffer, /*&*/IID_IDirectDrawSurface2, (LPVOID *)&pTmpBuffer); // (jonathanl)
+		ReturnCode = CreateDDS2(SurfaceDescription, pTmpBuffer);
 		if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 		{
 			DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -1955,7 +1887,7 @@ void RefreshScreen(void *DummyVariable)
 
 			ZEROMEM(SurfaceDescription);
 			SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-			ReturnCode = IDirectDrawSurface2_Lock(pTmpBuffer, NULL, &SurfaceDescription, 0, NULL);
+			ReturnCode = pTmpBuffer->Lock(NULL, &SurfaceDescription, 0, NULL);
 			if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 			{
 				DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -2003,7 +1935,7 @@ void RefreshScreen(void *DummyVariable)
 
 			ZEROMEM(SurfaceDescription);
 			SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-			ReturnCode = IDirectDrawSurface2_Unlock(pTmpBuffer, &SurfaceDescription);
+			ReturnCode = pTmpBuffer->Unlock(&SurfaceDescription);
 			if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 			{
 				DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -2020,7 +1952,7 @@ void RefreshScreen(void *DummyVariable)
 		//
 
 		gfPrintFrameBuffer = FALSE;
-		IDirectDrawSurface2_Release(pTmpBuffer);
+		pTmpBuffer->Release();
 	}
 
 	//
@@ -2267,8 +2199,7 @@ void RefreshScreen(void *DummyVariable)
 	{
 		do
 		{
-			ReturnCode = IDirectDrawSurface_Blt(
-				gpPrimarySurface,		// dest surface
+			ReturnCode = gpPrimarySurface->Blt(
 				&rcWindow,				// dest rect
 				gpBackBuffer,			// src surface
 				NULL,					// src rect (all of it)
@@ -2300,8 +2231,7 @@ void RefreshScreen(void *DummyVariable)
 	{
 		do
 		{
-			ReturnCode = IDirectDrawSurface_Flip(
-				_gpPrimarySurface,
+			ReturnCode = gpPrimarySurface->Flip(
 				NULL,
 				gGameExternalOptions.gfVSync ? DDFLIP_WAIT : 0x00000008l
 				);
@@ -2570,7 +2500,7 @@ PTR LockPrimarySurface(UINT32 *uiPitch)
 
 	do
 	{
-		ReturnCode = IDirectDrawSurface2_Lock(gpPrimarySurface, NULL, &SurfaceDescription, 0, NULL);
+		ReturnCode = gpPrimarySurface->Lock(NULL, &SurfaceDescription, 0, NULL);
 		if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 		{
 			DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, "Failed to lock backbuffer");
@@ -2589,11 +2519,10 @@ PTR LockPrimarySurface(UINT32 *uiPitch)
 void UnlockPrimarySurface(void)
 {
 	DDSURFACEDESC SurfaceDescription;
-	HRESULT		ReturnCode;
 
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-	ReturnCode = IDirectDrawSurface2_Unlock(gpPrimarySurface, &SurfaceDescription);
+	auto ReturnCode = gpPrimarySurface->Unlock(&SurfaceDescription);
 	if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -2620,7 +2549,7 @@ PTR LockBackBuffer(UINT32 *uiPitch)
 
 	do
 	{
-		ReturnCode = IDirectDrawSurface2_Lock(gpBackBuffer, NULL, &SurfaceDescription, 0, NULL);
+		ReturnCode = gpBackBuffer->Lock(NULL, &SurfaceDescription, 0, NULL);
 		if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 		{
 			DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, "Failed to lock backbuffer");
@@ -2651,7 +2580,7 @@ void UnlockBackBuffer(void)
 
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-	ReturnCode = IDirectDrawSurface2_Unlock(gpBackBuffer, &SurfaceDescription);
+	ReturnCode = gpBackBuffer->Unlock(&SurfaceDescription);
 	if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -2671,7 +2600,7 @@ PTR LockFrameBuffer(UINT32 *uiPitch)
 
 	do
 	{
-		ReturnCode = IDirectDrawSurface2_Lock(gpFrameBuffer, NULL, &SurfaceDescription, 0, NULL);
+		ReturnCode = gpFrameBuffer->Lock(NULL, &SurfaceDescription, 0, NULL);
 		if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 		{
 			DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, "Failed to lock backbuffer");
@@ -2697,7 +2626,7 @@ void UnlockFrameBuffer(void)
 
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-	ReturnCode = IDirectDrawSurface2_Unlock(gpFrameBuffer, &SurfaceDescription);
+	ReturnCode = gpFrameBuffer->Unlock(&SurfaceDescription);
 	if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -2714,7 +2643,7 @@ PTR LockMouseBuffer(UINT32 *uiPitch)
 
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-	ReturnCode = IDirectDrawSurface2_Lock(gpMouseCursorOriginal, NULL, &SurfaceDescription, 0, NULL);
+	ReturnCode = gpMouseCursorOriginal->Lock(NULL, &SurfaceDescription, 0, NULL);
 	if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -2735,7 +2664,7 @@ void UnlockMouseBuffer(void)
 
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-	ReturnCode = IDirectDrawSurface2_Unlock(gpMouseCursorOriginal, &SurfaceDescription);
+	ReturnCode = gpMouseCursorOriginal->Unlock(&SurfaceDescription);
 	if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -2765,7 +2694,7 @@ BOOLEAN GetRGBDistribution(void)
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof (DDSURFACEDESC);
 	SurfaceDescription.dwFlags = DDSD_PIXELFORMAT;
-	ReturnCode = IDirectDrawSurface2_GetSurfaceDesc ( gpPrimarySurface, &SurfaceDescription );
+	ReturnCode = gpPrimarySurface->GetSurfaceDesc(&SurfaceDescription);
 	if (ReturnCode != DD_OK)
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
@@ -3067,28 +2996,28 @@ BOOLEAN Set8BPPPalette(SGPPaletteEntry *pPalette)
 	// If we are in 256 colors, then we have to initialize the palette system to 0 (faded out)
 	memcpy(gSgpPalette, pPalette, sizeof(SGPPaletteEntry)*256);
 
-	ReturnCode = IDirectDraw_CreatePalette(gpDirectDrawObject, (DDPCAPS_8BIT | DDPCAPS_ALLOW256), (LPPALETTEENTRY)(&gSgpPalette[0]), &gpDirectDrawPalette, NULL);
+	ReturnCode = gpDirectDrawObject->CreatePalette((DDPCAPS_8BIT | DDPCAPS_ALLOW256), (LPPALETTEENTRY)(&gSgpPalette[0]), &gpDirectDrawPalette, NULL);
 	if (ReturnCode != DD_OK)
 	{
 		DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, String("Failed to create palette (Rc = %d)", ReturnCode));
 		return(FALSE);
 	}
 	// Apply the palette to the surfaces
-	ReturnCode = IDirectDrawSurface_SetPalette(gpPrimarySurface, gpDirectDrawPalette);
+	ReturnCode = gpPrimarySurface->SetPalette(gpDirectDrawPalette);
 	if (ReturnCode != DD_OK)
 	{
 		DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, String("Failed to apply 8-bit palette to primary surface"));
 		return(FALSE);
 	}
 
-	ReturnCode = IDirectDrawSurface_SetPalette(gpBackBuffer, gpDirectDrawPalette);
+	ReturnCode = gpBackBuffer->SetPalette(gpDirectDrawPalette);
 	if (ReturnCode != DD_OK)
 	{
 		DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, String("Failed to apply 8-bit palette to back buffer"));
 		return(FALSE);
 	}
 
-	ReturnCode = IDirectDrawSurface_SetPalette(gpFrameBuffer, gpDirectDrawPalette);
+	ReturnCode = gpFrameBuffer->SetPalette(gpDirectDrawPalette);
 	if (ReturnCode != DD_OK)
 	{
 		DebugMsg(TOPIC_VIDEO, DBG_LEVEL_0, String("Failed to apply 8-bit palette to frame buffer"));
@@ -3113,9 +3042,8 @@ void FatalError( const STR8 pError, ...)
 	// Release DDraw
 	if(gpDirectDrawObject)
 	{
-		IDirectDraw2_RestoreDisplayMode( gpDirectDrawObject );
-		IDirectDraw2_Release( gpDirectDrawObject );
-		gpDirectDrawObject = NULL;
+		gpDirectDrawObject->RestoreDisplayMode();
+		SafeRelease(gpDirectDrawObject);
 	}
 	ShowWindow( ghWindow, SW_HIDE );
 
@@ -3172,7 +3100,7 @@ void SnapshotSmall(void)
 
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-	ReturnCode = IDirectDrawSurface2_Lock( gpPrimarySurface, NULL, &SurfaceDescription, 0, NULL);
+	ReturnCode = gpPrimarySurface->Lock(NULL, &SurfaceDescription, 0, NULL);
 	if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 	{
 		return;
@@ -3228,7 +3156,7 @@ void SnapshotSmall(void)
 
 	ZEROMEM(SurfaceDescription);
 	SurfaceDescription.dwSize = sizeof(DDSURFACEDESC);
-	ReturnCode = IDirectDrawSurface2_Unlock(gpPrimarySurface, &SurfaceDescription);
+	ReturnCode = gpPrimarySurface->Unlock(&SurfaceDescription);
 	if ((ReturnCode != DD_OK)&&(ReturnCode != DDERR_WASSTILLDRAWING))
 	{
 		DirectXAttempt ( ReturnCode, __LINE__, __FILE__ );
